@@ -1,0 +1,611 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import pandas as pd
+import os
+from datetime import datetime
+
+class MBTIApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Prediksi Kepribadian MBTI dengan Fuzzy Logic")
+        self.root.geometry("1000x800")
+        self.root.configure(bg='#f0f8ff')
+
+        self.style = ttk.Style()
+        self.style.configure('TFrame', background='#f0f8ff')
+        self.style.configure('TLabel', background='#f0f8ff', font=('Helvetica', 10))
+        self.style.configure('Header.TLabel', font=('Helvetica', 12, 'bold'))
+        self.style.configure('TButton', font=('Helvetica', 10), padding=5)
+        self.style.configure('TNotebook', background='#f0f8ff')
+        self.style.configure('TNotebook.Tab', font=('Helvetica', 10, 'bold'), padding=[10, 5])
+        self.style.configure('Warning.TLabel', foreground='red', font=('Helvetica', 10, 'bold'))
+        self.style.configure('Treeview', font=('Helvetica', 9), rowheight=25)
+        self.style.configure('Treeview.Heading', font=('Helvetica', 10, 'bold'))
+
+        self.tab_control = ttk.Notebook(root)
+        self.input_frame = ttk.Frame(self.tab_control, padding="10")
+        self.result_frame = ttk.Frame(self.tab_control, padding="10")
+        self.visual_frame = ttk.Frame(self.tab_control, padding="10")
+        self.save_frame = ttk.Frame(self.tab_control, padding="10")  # New save tab
+        self.analysis_frame = ttk.Frame(self.tab_control, padding="10")  # New analysis tab
+
+        self.tab_control.add(self.input_frame, text="Penilaian Kepribadian")
+        self.tab_control.add(self.result_frame, text="Hasil Anda")
+        self.tab_control.add(self.visual_frame, text="Analisis Visual")
+        self.tab_control.add(self.save_frame, text="Simpan Data")
+        self.tab_control.add(self.analysis_frame, text="Analisis Data Tersimpan")
+        self.tab_control.pack(expand=1, fill='both')
+
+        self.inputs = {f'{d}{i}': tk.DoubleVar(value=5.0) for d in ['e', 's', 't', 'j'] for i in range(1, 6)}
+        self.mbti_type = tk.StringVar(value="")
+        self.fuzzy_rules = self.generate_fuzzy_rules()
+        self.data_file = "mbti_data.csv"
+        self.current_result = None
+
+        self.setup_input_frame()
+        self.setup_result_frame()
+        self.setup_visualization_frame()
+        self.setup_save_frame()  # Setup save tab
+        self.setup_analysis_frame()  # Setup analysis tab
+
+    def generate_fuzzy_rules(self):
+        # Aturan fuzzy untuk setiap dimensi MBTI
+        return {
+            'E/I': [
+                {"name": "Introvert", "range": (0, 4), "membership": self.trap_membership(0, 0, 3, 4)},
+                {"name": "Seimbang", "range": (3, 7), "membership": self.tri_membership(3, 5, 7)},
+                {"name": "Ekstrovert", "range": (6, 10), "membership": self.trap_membership(6, 7, 10, 10)}
+            ],
+            'S/N': [
+                {"name": "Intuisi", "range": (0, 4), "membership": self.trap_membership(0, 0, 3, 4)},
+                {"name": "Seimbang", "range": (3, 7), "membership": self.tri_membership(3, 5, 7)},
+                {"name": "Sensing", "range": (6, 10), "membership": self.trap_membership(6, 7, 10, 10)}
+            ],
+            'T/F': [
+                {"name": "Feeling", "range": (0, 4), "membership": self.trap_membership(0, 0, 3, 4)},
+                {"name": "Seimbang", "range": (3, 7), "membership": self.tri_membership(3, 5, 7)},
+                {"name": "Thinking", "range": (6, 10), "membership": self.trap_membership(6, 7, 10, 10)}
+            ],
+            'J/P': [
+                {"name": "Perceiving", "range": (0, 4), "membership": self.trap_membership(0, 0, 3, 4)},
+                {"name": "Seimbang", "range": (3, 7), "membership": self.tri_membership(3, 5, 7)},
+                {"name": "Judging", "range": (6, 10), "membership": self.trap_membership(6, 7, 10, 10)}
+            ]
+        }
+
+    def trap_membership(self, a, b, c, d):
+        """Fungsi keanggotaan trapezoidal"""
+        return lambda x: max(0, min((x - a)/(b - a) if b != a else 1, 1, (d - x)/(d - c) if d != c else 1))
+
+    def tri_membership(self, a, b, c):
+        """Fungsi keanggotaan triangular"""
+        return lambda x: max(0, min((x - a)/(b - a), (c - x)/(c - b)))
+
+    def setup_input_frame(self):
+        container = ttk.Frame(self.input_frame)
+        container.pack(fill='both', expand=True)
+        canvas = tk.Canvas(container, bg='#f0f8ff')
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set, bg='#f0f8ff')
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        ttk.Label(scrollable_frame, text="Kuesioner Penilaian Kepribadian MBTI", 
+                 font=('Helvetica', 14, 'bold')).grid(row=0, column=0, columnspan=3, pady=20)
+        ttk.Label(scrollable_frame, text="Nilai setiap pernyataan dari 1 (Sangat Tidak Setuju) hingga 10 (Sangat Setuju):", 
+                 wraplength=600).grid(row=1, column=0, columnspan=3, pady=10)
+
+        questions = [
+            ("--- Ekstraversi (E) vs Introversi (I) ---", ""),
+            ("Saya menikmati interaksi sosial secara rutin", "e1"),
+            ("Saya merasa nyaman di tempat yang ramai", "e2"),
+            ("Saya lebih sering berbicara daripada mendengarkan", "e3"),
+            ("Berada di sekitar orang lain memberi saya energi", "e4"),
+            ("Saya lebih suka aktivitas kelompok daripada sendiri", "e5"),
+            ("--- Sensing (S) vs Intuition (N) ---", ""),
+            ("Saya memperhatikan detail secara seksama", "s1"),
+            ("Saya memiliki imajinasi yang kuat", "s2"),
+            ("Saya lebih suka solusi praktis daripada teori", "s3"),
+            ("Saya menikmati membahas konsep abstrak", "s4"),
+            ("Saya lebih fokus pada masa kini daripada masa depan", "s5"),
+            ("--- Thinking (T) vs Feeling (F) ---", ""),
+            ("Saya mengambil keputusan berdasarkan logika", "t1"),
+            ("Saya mudah terpengaruh oleh emosi orang lain", "t2"),
+            ("Saya mudah berempati dengan orang lain", "t3"),
+            ("Saya menganalisis masalah secara objektif", "t4"),
+            ("Saya menghindari konflik untuk menjaga keharmonisan", "t5"),
+            ("--- Judging (J) vs Perceiving (P) ---", ""),
+            ("Saya suka merencanakan dan mengatur segalanya", "j1"),
+            ("Saya mudah menyesuaikan diri dengan perubahan", "j2"),
+            ("Saya lebih suka mengikuti jadwal", "j3"),
+            ("Saya menikmati aktivitas spontan", "j4"),
+            ("Saya bekerja lebih baik saat tenggat waktu mendekat", "j5")
+        ]
+
+        row = 2
+        for text, key in questions:
+            if not key:
+                ttk.Label(scrollable_frame, text=text, style='Header.TLabel').grid(row=row, column=0, columnspan=3, pady=(15, 5), sticky='w')
+            else:
+                ttk.Label(scrollable_frame, text=text, wraplength=400, justify='left').grid(row=row, column=0, sticky='w', padx=10, pady=5)
+                ttk.Scale(scrollable_frame, from_=0, to=10, orient='horizontal', 
+                         variable=self.inputs[key], length=300).grid(row=row, column=1, padx=10, pady=5)
+                val_label = ttk.Label(scrollable_frame, text="5.0", width=4)
+                val_label.grid(row=row, column=2, padx=5)
+                self.inputs[key].trace_add("write", lambda *_, var=self.inputs[key], lbl=val_label: lbl.config(text=f"{var.get():.1f}"))
+            row += 1
+
+        submit_btn = ttk.Button(scrollable_frame, text="Analisis Kepribadian Saya", 
+                               command=self.calculate_result, style='TButton')
+        submit_btn.grid(row=row + 1, column=0, columnspan=3, pady=20)
+
+    def setup_result_frame(self):
+        ttk.Label(self.result_frame, text="Hasil Tipe Kepribadian MBTI Anda", 
+                 font=('Helvetica', 16, 'bold')).pack(pady=20)
+        
+        self.type_label = ttk.Label(self.result_frame, text="Selesaikan penilaian untuk melihat hasil", 
+                                  font=('Helvetica', 24, 'bold'))
+        self.type_label.pack(pady=10)
+        
+        self.detail_frame = ttk.Frame(self.result_frame)
+        self.detail_frame.pack(fill='both', expand=True, padx=20, pady=10)
+        
+        ttk.Label(self.detail_frame, text="Detail Analisis Fuzzy:").pack(anchor='w', pady=5)
+        self.fuzzy_details = tk.Text(self.detail_frame, height=10, width=80, wrap='word')
+        self.fuzzy_details.pack(fill='both', expand=True, padx=10, pady=5)
+        self.fuzzy_details.config(state='disabled')
+
+    def setup_visualization_frame(self):
+        self.viz_container = ttk.Frame(self.visual_frame)
+        self.viz_container.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        self.warning_frame = ttk.Frame(self.viz_container)
+        self.warning_frame.pack(fill='x', pady=5)
+        
+        self.chart_frame = ttk.Frame(self.viz_container)
+        self.chart_frame.pack(fill='both', expand=True, pady=10)
+        
+        self.membership_frame = ttk.Frame(self.viz_container)
+        self.membership_frame.pack(fill='both', expand=True, pady=10)
+        
+        ttk.Label(self.chart_frame, text="Visualisasi akan muncul setelah penilaian.").pack(expand=True)
+
+    def setup_save_frame(self):
+        """Setup tab for saving data"""
+        container = ttk.Frame(self.save_frame)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        ttk.Label(container, text="Simpan Hasil Penilaian", 
+                 font=('Helvetica', 16, 'bold')).pack(pady=10, anchor='w')
+        
+        # User info section
+        info_frame = ttk.LabelFrame(container, text="Informasi Tambahan (Opsional)")
+        info_frame.pack(fill='x', pady=10)
+        
+        ttk.Label(info_frame, text="Nama:").grid(row=0, column=0, padx=5, pady=5, sticky='e')
+        self.name_var = tk.StringVar()
+        ttk.Entry(info_frame, textvariable=self.name_var, width=30).grid(row=0, column=1, padx=5, pady=5)
+        
+        ttk.Label(info_frame, text="Usia:").grid(row=0, column=2, padx=5, pady=5, sticky='e')
+        self.age_var = tk.StringVar()
+        ttk.Entry(info_frame, textvariable=self.age_var, width=10).grid(row=0, column=3, padx=5, pady=5)
+        
+        ttk.Label(info_frame, text="Jenis Kelamin:").grid(row=0, column=4, padx=5, pady=5, sticky='e')
+        self.gender_var = tk.StringVar()
+        ttk.Combobox(info_frame, textvariable=self.gender_var, 
+                    values=["", "Laki-laki", "Perempuan"], width=15).grid(row=0, column=5, padx=5, pady=5)
+        
+        # Save buttons
+        btn_frame = ttk.Frame(container)
+        btn_frame.pack(pady=20)
+        
+        ttk.Button(btn_frame, text="Simpan ke File CSV", 
+                  command=self.save_to_csv).pack(side='left', padx=10)
+        ttk.Button(btn_frame, text="Simpan ke File Excel", 
+                  command=self.save_to_excel).pack(side='left', padx=10)
+        
+        # Status label
+        self.save_status = ttk.Label(container, text="")
+        self.save_status.pack(pady=10)
+        
+        # Instructions
+        ttk.Label(container, text="Catatan: Anda harus menyelesaikan penilaian di tab 'Penilaian Kepribadian' sebelum menyimpan.", 
+                 font=('Helvetica', 9), foreground='gray').pack(pady=20, anchor='w')
+
+    def setup_analysis_frame(self):
+        """Setup tab for analyzing stored data"""
+        container = ttk.Frame(self.analysis_frame)
+        container.pack(fill='both', expand=True, padx=20, pady=20)
+        
+        # Load data section
+        load_frame = ttk.Frame(container)
+        load_frame.pack(fill='x', pady=10)
+        
+        ttk.Button(load_frame, text="Muat Data", command=self.load_and_analyze_data).pack(side='left', padx=5)
+        ttk.Button(load_frame, text="Bersihkan Tampilan", command=self.clear_analysis).pack(side='left', padx=5)
+        
+        # Analysis results section
+        self.analysis_results = ttk.LabelFrame(container, text="Hasil Analisis")
+        self.analysis_results.pack(fill='both', expand=True, pady=10)
+        
+        # Initialize with empty state
+        ttk.Label(self.analysis_results, text="Klik 'Muat Data' untuk memuat dan menganalisis data tersimpan").pack(pady=50)
+        
+        # Add chart frame for visualizations
+        self.analysis_chart_frame = ttk.Frame(container)
+        self.analysis_chart_frame.pack(fill='both', expand=True, pady=10)
+        
+        # Add table frame for raw data
+        self.data_table_frame = ttk.Frame(container)
+        self.data_table_frame.pack(fill='both', expand=True, pady=10)
+
+    def detect_outliers(self):
+        """Deteksi nilai outlier dalam input"""
+        outliers = []
+        for key, var in self.inputs.items():
+            val = var.get()
+            if val <= 2.0 or val >= 8.0:
+                outliers.append((key, val))
+        return outliers
+
+    def fuzzy_classification(self, score, dimension):
+        """Klasifikasi fuzzy untuk satu dimensi"""
+        max_membership = 0
+        category = ""
+        
+        for rule in self.fuzzy_rules[dimension]:
+            membership = rule['membership'](score)
+            if membership > max_membership:
+                max_membership = membership
+                category = rule['name']
+        
+        return category, max_membership
+
+    def plot_membership_functions(self, dimension):
+        """Plot fungsi keanggotaan untuk visualisasi"""
+        fig, ax = plt.subplots(figsize=(10, 4))
+        x = np.linspace(0, 10, 100)
+        
+        for rule in self.fuzzy_rules[dimension]:
+            y = [rule['membership'](xi) for xi in x]
+            ax.plot(x, y, label=rule['name'])
+        
+        ax.set_title(f"Fungsi Keanggotaan: {dimension}")
+        ax.set_xlabel("Skor Rata-rata")
+        ax.set_ylabel("Derajat Keanggotaan")
+        ax.legend()
+        ax.grid(True)
+        
+        return fig
+
+    def calculate_result(self):
+        try:
+            # Hitung skor dengan inversi untuk pertanyaan tertentu
+            e_scores = [self.inputs['e1'].get(), self.inputs['e2'].get(), 
+                       self.inputs['e3'].get(), self.inputs['e4'].get(), 
+                       self.inputs['e5'].get()]
+            ei_score = np.mean(e_scores)
+
+            s_scores = [self.inputs['s1'].get(),
+                        10 - self.inputs['s2'].get(),   # Invers untuk pertanyaan N
+                        self.inputs['s3'].get(),
+                        10 - self.inputs['s4'].get(),   # Invers untuk pertanyaan N
+                        self.inputs['s5'].get()]
+            sn_score = np.mean(s_scores)
+
+            t_scores = [self.inputs['t1'].get(),
+                        10 - self.inputs['t2'].get(),   # Invers untuk pertanyaan F
+                        10 - self.inputs['t3'].get(),   # Invers untuk pertanyaan F
+                        self.inputs['t4'].get(),
+                        10 - self.inputs['t5'].get()]   # Invers untuk pertanyaan F
+            tf_score = np.mean(t_scores)
+
+            j_scores = [self.inputs['j1'].get(),
+                        10 - self.inputs['j2'].get(),   # Invers untuk pertanyaan P
+                        self.inputs['j3'].get(),
+                        10 - self.inputs['j4'].get(),   # Invers untuk pertanyaan P
+                        10 - self.inputs['j5'].get()]   # Invers untuk pertanyaan P
+            jp_score = np.mean(j_scores)
+
+            # Klasifikasi fuzzy
+            ei_category, ei_membership = self.fuzzy_classification(ei_score, 'E/I')
+            sn_category, sn_membership = self.fuzzy_classification(sn_score, 'S/N')
+            tf_category, tf_membership = self.fuzzy_classification(tf_score, 'T/F')
+            jp_category, jp_membership = self.fuzzy_classification(jp_score, 'J/P')
+
+            # Tentukan tipe MBTI
+            ei_type = 'E' if "Ekstrovert" in ei_category else 'I'
+            sn_type = 'S' if "Sensing" in sn_category else 'N'
+            tf_type = 'T' if "Thinking" in tf_category else 'F'
+            jp_type = 'J' if "Judging" in jp_category else 'P'
+            
+            mbti_type = ei_type + sn_type + tf_type + jp_type
+            self.mbti_type.set(mbti_type)
+            self.current_result = {
+                'mbti_type': mbti_type,
+                'scores': {
+                    'E/I': ei_score,
+                    'S/N': sn_score,
+                    'T/F': tf_score,
+                    'J/P': jp_score
+                },
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                'inputs': {key: var.get() for key, var in self.inputs.items()}
+            }
+            
+            # Update UI hasil
+            self.type_label.config(text=f"Tipe MBTI Anda: {mbti_type}")
+            
+            # Tampilkan detail fuzzy
+            fuzzy_detail_text = (
+                f"Analisis Fuzzy Logic:\n"
+                f"1. Dimensi E/I: Skor {ei_score:.2f} → {ei_category} (Keanggotaan: {ei_membership:.2f})\n"
+                f"2. Dimensi S/N: Skor {sn_score:.2f} → {sn_category} (Keanggotaan: {sn_membership:.2f})\n"
+                f"3. Dimensi T/F: Skor {tf_score:.2f} → {tf_category} (Keanggotaan: {tf_membership:.2f})\n"
+                f"4. Dimensi J/P: Skor {jp_score:.2f} → {jp_category} (Keanggotaan: {jp_membership:.2f})\n\n"
+                f"Kesimpulan: Tipe MBTI {mbti_type}"
+            )
+            
+            self.fuzzy_details.config(state='normal')
+            self.fuzzy_details.delete(1.0, tk.END)
+            self.fuzzy_details.insert(tk.END, fuzzy_detail_text)
+            self.fuzzy_details.config(state='disabled')
+            
+            # Deteksi outlier
+            outliers = self.detect_outliers()
+            for widget in self.warning_frame.winfo_children():
+                widget.destroy()
+                
+            if outliers:
+                warning_text = "Peringatan: Ditemukan nilai ekstrem pada pertanyaan:\n"
+                for key, val in outliers:
+                    warning_text += f"- {key}: {val:.1f}\n"
+                warning_text += "Nilai ekstrem dapat memengaruhi akurasi hasil."
+                
+                ttk.Label(self.warning_frame, text=warning_text, 
+                         style='Warning.TLabel', wraplength=800).pack(anchor='w', padx=10)
+            
+            # Visualisasi data
+            for widget in self.chart_frame.winfo_children():
+                widget.destroy()
+                
+            fig, ax = plt.subplots(figsize=(10, 5))
+            dimensions = ['E/I', 'S/N', 'T/F', 'J/P']
+            scores = [ei_score, sn_score, tf_score, jp_score]
+            
+            colors = ['#ff9999','#66b3ff','#99ff99','#ffcc99']
+            ax.bar(dimensions, scores, color=colors)
+            
+            for i, v in enumerate(scores):
+                ax.text(i, v + 0.1, f"{v:.2f}", ha='center')
+                
+            ax.set_ylim(0, 10)
+            ax.set_ylabel('Skor Rata-rata')
+            ax.set_title('Skor Dimensi Kepribadian')
+            
+            canvas = FigureCanvasTkAgg(fig, self.chart_frame)
+            canvas.draw()
+            canvas.get_tk_widget().pack(fill='both', expand=True)
+            
+            # Visualisasi fungsi keanggotaan
+            for widget in self.membership_frame.winfo_children():
+                widget.destroy()
+                
+            notebook = ttk.Notebook(self.membership_frame)
+            tabs = []
+            for dim in dimensions:
+                frame = ttk.Frame(notebook)
+                tabs.append(frame)
+                notebook.add(frame, text=dim)
+                
+                fig = self.plot_membership_functions(dim)
+                canvas = FigureCanvasTkAgg(fig, frame)
+                canvas.draw()
+                canvas.get_tk_widget().pack(fill='both', expand=True)
+                
+            notebook.pack(fill='both', expand=True)
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Terjadi kesalahan: {e}")
+
+    def save_to_csv(self):
+        """Save current result to CSV file"""
+        if not self.current_result:
+            messagebox.showwarning("Peringatan", "Tidak ada hasil yang tersedia untuk disimpan. Silakan lakukan penilaian terlebih dahulu.")
+            return
+            
+        try:
+            # Collect all data
+            data = {
+                'timestamp': self.current_result['timestamp'],
+                'nama': self.name_var.get(),
+                'usia': self.age_var.get(),
+                'jenis_kelamin': self.gender_var.get(),
+                'mbti_type': self.current_result['mbti_type'],
+                **{f'score_{dim}': score for dim, score in self.current_result['scores'].items()},
+                **{key: value for key, value in self.current_result['inputs'].items()}
+            }
+            
+            # Create DataFrame
+            df = pd.DataFrame([data])
+            
+            # Check if file exists
+            if os.path.exists(self.data_file):
+                # Append to existing file
+                df.to_csv(self.data_file, mode='a', header=False, index=False)
+                self.save_status.config(text=f"Data berhasil ditambahkan ke {self.data_file}")
+            else:
+                # Create new file
+                df.to_csv(self.data_file, index=False)
+                self.save_status.config(text=f"File {self.data_file} berhasil dibuat")
+                
+            messagebox.showinfo("Sukses", "Data berhasil disimpan!")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Gagal menyimpan data: {e}")
+
+    def save_to_excel(self):
+        """Save current result to Excel file"""
+        if not self.current_result:
+            messagebox.showwarning("Peringatan", "Tidak ada hasil yang tersedia untuk disimpan. Silakan lakukan penilaian terlebih dahulu.")
+            return
+        
+        try:
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")],
+                title="Simpan sebagai file Excel"
+            )
+        
+            if not file_path:
+                return  # User canceled
+            
+            # Collect all data
+            data = {
+                'timestamp': self.current_result['timestamp'],
+                'nama': self.name_var.get(),
+                'usia': self.age_var.get(),
+                'jenis_kelamin': self.gender_var.get(),
+                'mbti_type': self.current_result['mbti_type'],
+                **{f'score_{dim}': score for dim, score in self.current_result['scores'].items()},
+                **{key: value for key, value in self.current_result['inputs'].items()}
+            }
+        
+            # Create DataFrame and save with explicit engine
+            df = pd.DataFrame([data])
+            df.to_excel(file_path, index=False, engine='openpyxl')  # Gunakan openpyxl sebagai engine
+        
+            self.save_status.config(text=f"Data berhasil disimpan ke {file_path}")
+            messagebox.showinfo("Sukses", f"Data berhasil disimpan ke:\n{file_path}")
+        
+        except Exception as e:
+            messagebox.showerror("Error", f"Gagal menyimpan data: {e}")
+
+    def load_and_analyze_data(self):
+        """Load and analyze stored data"""
+        try:
+            if not os.path.exists(self.data_file):
+                messagebox.showinfo("Info", f"File data {self.data_file} tidak ditemukan")
+                return
+                
+            # Load data
+            df = pd.read_csv(self.data_file)
+            
+            if df.empty:
+                messagebox.showinfo("Info", "Tidak ada data yang tersimpan")
+                return
+                
+            # Clear previous analysis
+            self.clear_analysis()
+            
+            # Display basic stats
+            stats_frame = ttk.Frame(self.analysis_results)
+            stats_frame.pack(fill='x', pady=10, padx=10)
+            
+            ttk.Label(stats_frame, text=f"Jumlah Data: {len(df)}", 
+                     font=('Helvetica', 11)).pack(side='left', padx=20)
+            
+            # MBTI distribution
+            mbti_counts = df['mbti_type'].value_counts()
+            ttk.Label(stats_frame, text=f"Jumlah Tipe MBTI Unik: {len(mbti_counts)}", 
+                     font=('Helvetica', 11)).pack(side='left', padx=20)
+            
+            # Create pie chart for MBTI distribution
+            fig1, ax1 = plt.subplots(figsize=(8, 6))
+            mbti_counts.plot.pie(autopct='%1.1f%%', ax=ax1)
+            ax1.set_title('Distribusi Tipe MBTI')
+            ax1.set_ylabel('')
+            
+            canvas1 = FigureCanvasTkAgg(fig1, self.analysis_chart_frame)
+            canvas1.draw()
+            canvas1.get_tk_widget().pack(fill='both', expand=True, pady=10)
+            
+            # Create bar chart for dimension averages
+            fig2, ax2 = plt.subplots(figsize=(10, 5))
+            dimensions = ['score_E/I', 'score_S/N', 'score_T/F', 'score_J/P']
+            dimension_names = ['E/I', 'S/N', 'T/F', 'J/P']
+            avg_scores = [df[dim].mean() for dim in dimensions]
+            
+            ax2.bar(dimension_names, avg_scores, color=['#4c72b0', '#55a868', '#c44e52', '#8172b2'])
+            ax2.set_title('Rata-rata Skor Dimensi Kepribadian')
+            ax2.set_ylabel('Skor Rata-rata')
+            ax2.set_ylim(0, 10)
+            
+            for i, v in enumerate(avg_scores):
+                ax2.text(i, v + 0.1, f"{v:.2f}", ha='center')
+                
+            canvas2 = FigureCanvasTkAgg(fig2, self.analysis_chart_frame)
+            canvas2.draw()
+            canvas2.get_tk_widget().pack(fill='both', expand=True, pady=10)
+            
+            # Create table with raw data
+            table_frame = ttk.Frame(self.data_table_frame)
+            table_frame.pack(fill='both', expand=True, padx=10, pady=10)
+            
+            ttk.Label(table_frame, text="Data Tersimpan", 
+                     font=('Helvetica', 12, 'bold')).pack(anchor='w', pady=5)
+            
+            # Create treeview
+            columns = ['timestamp', 'nama', 'usia', 'jenis_kelamin', 'mbti_type'] + dimensions
+            tree = ttk.Treeview(table_frame, columns=columns, show='headings', height=8)
+            
+            # Set column headings
+            col_names = {
+                'timestamp': 'Timestamp',
+                'nama': 'Nama',
+                'usia': 'Usia',
+                'jenis_kelamin': 'Jenis Kelamin',
+                'mbti_type': 'MBTI',
+                'score_E/I': 'Skor E/I',
+                'score_S/N': 'Skor S/N',
+                'score_T/F': 'Skor T/F',
+                'score_J/P': 'Skor J/P'
+            }
+            
+            for col in columns:
+                tree.heading(col, text=col_names[col])
+                tree.column(col, width=80, anchor='center')
+                
+            tree.column('timestamp', width=150)
+            tree.column('nama', width=120)
+            tree.column('mbti_type', width=80)
+            
+            # Add scrollbar
+            scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+            tree.configure(yscrollcommand=scrollbar.set)
+            
+            # Pack components
+            tree.pack(side='left', fill='both', expand=True)
+            scrollbar.pack(side='right', fill='y')
+            
+            # Add data to table
+            for _, row in df.iterrows():
+                tree.insert('', 'end', values=[row[col] for col in columns])
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Gagal memuat data: {e}")
+
+    def clear_analysis(self):
+        """Clear analysis results"""
+        for widget in self.analysis_results.winfo_children():
+            widget.destroy()
+            
+        for widget in self.analysis_chart_frame.winfo_children():
+            widget.destroy()
+            
+        for widget in self.data_table_frame.winfo_children():
+            widget.destroy()
+            
+        ttk.Label(self.analysis_results, text="Klik 'Muat Data' untuk memuat dan menganalisis data tersimpan").pack(pady=50)
+
+if __name__ == '__main__':
+    root = tk.Tk()
+    app = MBTIApp(root)
+    root.mainloop()
